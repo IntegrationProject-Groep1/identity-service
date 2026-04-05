@@ -3,24 +3,59 @@ name: CI Pipeline
 on:
   push:
     branches: [ "main", "dev", "prod" ]
-    tags: [ "v*" ]
   pull_request:
     branches: [ "main", "dev", "prod" ]
 
 jobs:
   test:
     runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_DB: integration_db
+          POSTGRES_USER: admin
+          POSTGRES_PASSWORD: password123 # test-wachtwoord (niet echt)
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      rabbitmq:
+        image: rabbitmq:3-management
+        env:
+          RABBITMQ_DEFAULT_USER: user
+          RABBITMQ_DEFAULT_PASS: password
+        ports:
+          - 5672:5672
+        options: >-
+          --health-cmd "rabbitmq-diagnostics -q check_running"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-
+          
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+          cache: 'pip'
 
       - name: Install dependencies
-        run: pip install -r requirements.txt pytest
+        run: |
+          pip install -r requirements.txt pytest
 
       - name: Run tests
+        env:
+          # Vertel je Python code waar de database en rabbitmq staan
+          DB_HOST: localhost
+          DB_PORT: 5432
+          RABBIT_HOST: localhost
         run: pytest tests/ -v
