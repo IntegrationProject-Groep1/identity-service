@@ -1,7 +1,8 @@
 import logging
-from uuid import UUID, uuid4
+from uuid import UUID
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
+from uuid_utils import uuid7
 from models import UserRegistry
 from rabbitmq_service import publish_user_created
 
@@ -24,8 +25,8 @@ def create_user(email: str, source_system: str, db: Session) -> UserRegistry:
             return existing_user
 
         # Generate UUID v7 (time-ordered)
-        # Using uuid4() as base - in production, use a proper UUID v7 library
-        master_uuid = UUID(int=uuid4().int)
+        generated_uuid = uuid7()
+        master_uuid = generated_uuid if isinstance(generated_uuid, UUID) else UUID(str(generated_uuid))
 
         # Create new user
         new_user = UserRegistry(

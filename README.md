@@ -11,91 +11,101 @@ The Identity Service is the **single source of truth** for Master UUIDs across a
 - **Language**: Python 3.11
 - **Framework**: FastAPI
 - **Database**: PostgreSQL
-- **Messaging**: RabbitMQ (events publishing)
+- **Messaging**: RabbitMQ only (request/reply + event publishing)
 - **UUID Format**: UUID v7 (time-ordered)
+- **Serialization**: XML only (no JSON contracts)
 
 ## Features
 
-- **Idempotent User Creation**: Multiple requests with the same email return the same UUID
-- **Event Publishing**: Broadcasts `UserCreated` events via RabbitMQ
-- **Email Lookup**: Fast lookup by email address
-- **UUID Lookup**: Direct lookup by Master UUID
+- **Idempotent User Creation**: Multiple create requests with the same email return the same UUID
+- **Event Publishing**: Broadcasts `UserCreated` via RabbitMQ fanout exchange
+- **RabbitMQ RPC Support**: Create and lookup operations exposed through durable RabbitMQ queues
+- **XML Contracts**: All inter-service payloads are XML
 
-## API Endpoints
+## Communication model (RabbitMQ only)
 
-### Create User
-```
-POST /users
-Content-Type: application/json
+Inter-service communication must use RabbitMQ only.
 
-{
-  "email": "user@example.com",
-  "source_system": "crm"
-}
+### Request queues (RPC style)
 
-Response (201):
-{
-  "master_uuid": "01890a5d-ac96-7ab2-80e2-4536629c90de",
-  "email": "user@example.com",
-  "created_by": "crm",
-  "created_at": "2025-04-05T10:30:00+00:00"
-}
-```
+- `identity.user.create.request`
+- `identity.user.lookup.email.request`
+- `identity.user.lookup.uuid.request`
 
-### Get User by UUID
-```
-GET /users/{master_uuid}
+Each request message must provide:
+- `reply_to`
+- `correlation_id`
 
-Response (200):
-{
-  "master_uuid": "01890a5d-ac96-7ab2-80e2-4536629c90de",
-  "email": "user@example.com",
-  "created_by": "crm",
-  "created_at": "2025-04-05T10:30:00+00:00"
-}
-```
+### Event exchange
 
-### Get User by Email
-```
-GET /users/by-email/{email}
+- Exchange: `user.events`
+- Type: `fanout`
+- Durable: `true`
 
-Response (200):
-{
-  "master_uuid": "01890a5d-ac96-7ab2-80e2-4536629c90de",
-  "email": "user@example.com",
-  "created_by": "crm",
-  "created_at": "2025-04-05T10:30:00+00:00"
-}
-```
+### Health endpoint
 
-### Health Check
-```
-GET /health
-
-Response (200):
-{
-  "status": "ok"
-}
-```
+`GET /health` exists for operational liveness checks only and is not part of service-to-service business communication.
 
 ## RabbitMQ Integration
 
-### Event Publishing
+### XML request examples
 
-When a user is created, the service publishes a `UserCreated` event to the `user.events` fanout exchange:
+Create/get user request to `identity.user.create.request`:
 
-```json
-{
-  "event": "UserCreated",
-  "master_uuid": "01890a5d-ac96-7ab2-80e2-4536629c90de",
-  "email": "user@example.com",
-  "source_system": "crm",
-  "timestamp": "2025-04-05T10:30:00+00:00"
-}
+```xml
+<identity_request>
+  <email>user@example.com</email>
+  <source_system>crm</source_system>
+</identity_request>
+```
+
+Lookup by email request to `identity.user.lookup.email.request`:
+
+```xml
+<identity_request>
+  <email>user@example.com</email>
+</identity_request>
+```
+
+Lookup by UUID request to `identity.user.lookup.uuid.request`:
+
+```xml
+<identity_request>
+  <master_uuid>01890a5d-ac96-7ab2-80e2-4536629c90de</master_uuid>
+</identity_request>
+```
+
+### XML response example
+
+```xml
+<identity_response>
+  <status>ok</status>
+  <user>
+    <master_uuid>01890a5d-ac96-7ab2-80e2-4536629c90de</master_uuid>
+    <email>user@example.com</email>
+    <created_by>crm</created_by>
+    <created_at>2026-04-05T12:00:00+00:00</created_at>
+  </user>
+</identity_response>
+```
+
+### UserCreated event (XML)
+
+When a user is created, the service publishes this XML event to `user.events`:
+
+```xml
+<user_event>
+  <event>UserCreated</event>
+  <master_uuid>01890a5d-ac96-7ab2-80e2-4536629c90de</master_uuid>
+  <email>user@example.com</email>
+  <source_system>crm</source_system>
+  <timestamp>2026-04-05T12:00:00+00:00</timestamp>
+</user_event>
 ```
 
 **Exchange**: `user.events` (fanout, durable)
 **Delivery Mode**: Persistent (mode=2)
+**Content-Type**: `application/xml`
 
 ## Environment Variables
 
@@ -157,9 +167,8 @@ Indexes:
    uvicorn main:app --reload --host 0.0.0.0 --port 8000
    ```
 
-5. **Access API docs**
-   - Swagger UI: http://localhost:8000/docs
-   - ReDoc: http://localhost:8000/redoc
+5. **Verify health**
+  - http://localhost:8000/health
 
 ## Docker Deployment
 
@@ -180,9 +189,62 @@ Each service that needs to use Master UUIDs should:
 
 1. **Add Consumer**: Listen to `user.events` exchange
 2. **Store Master UUID**: Add `master_uuid` column to local user tables
-3. **Migration Script**: Populate existing users by calling `POST /users` and `GET /users/by-email/{email}`
+3. **Migration Script**: Populate existing users via RabbitMQ XML RPC (`identity.user.create.request` / lookup queues)
 
-See individual service documentation for integration details.
+## ⚠️ Mandatory for all other teams
+
+Only `identity-service` is being shared to GitHub, so every team must implement using this contract.
+
+### Source of truth rule
+
+- `identity-service` is the **only** component that may generate a Master UUID.
+- Other services may store a local copy of `master_uuid`, but must never generate one themselves.
+
+### Required implementation pattern per service
+
+1. Create/alter local user schema:
+  - add `master_uuid`
+  - set `UNIQUE` + index
+  - enforce `NOT NULL` for new records
+2. Add RabbitMQ consumer:
+  - declare exchange `user.events` as `fanout` with `durable=true`
+  - declare queue `<service-name>.user_created` with `durable=true`
+  - bind queue to exchange
+3. Handle incoming `UserCreated` events idempotently:
+  - lookup local user by `email`
+  - if exists: update `master_uuid`
+  - if not exists: store in staging or create minimal local record
+4. Create migration script (idempotent):
+  - iterate existing local users by email
+  - publish XML request to `identity.user.create.request`
+  - store returned `master_uuid`
+
+### Event contract (must match exactly)
+
+`<...>` values are placeholders in this documentation. They are not literal values.
+
+```xml
+<user_event>
+  <event>UserCreated</event>
+  <master_uuid>01890a5d-ac96-7ab2-80e2-4536629c90de</master_uuid>
+  <email>user@example.com</email>
+  <source_system>crm</source_system>
+  <timestamp>2026-04-05T12:00:00+00:00</timestamp>
+</user_event>
+```
+
+Important: teams must not generate UUIDs locally. They only consume/store UUIDs from `identity-service`.
+
+### Team checklist
+
+- [ ] `master_uuid` field exists in local user model/table
+- [ ] Unique index exists on `master_uuid`
+- [ ] Consumer queue `<service>.user_created` is durable and bound to `user.events`
+- [ ] Upsert on email conflict updates `master_uuid`
+- [ ] Migration script is safe to run multiple times
+- [ ] No local UUID generation remains in service code
+
+For a copy-paste ready onboarding guide for teams, see `TEAM_ONBOARDING.md` in this same folder.
 
 ## Error Handling
 
