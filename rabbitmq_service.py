@@ -13,13 +13,6 @@ from database import SessionLocal
 
 logger = logging.getLogger(__name__)
 
-# RabbitMQ configuration
-RABBITMQ_HOST = os.getenv("RABBITMQ_HOST", "localhost")
-RABBITMQ_PORT = int(os.getenv("RABBITMQ_PORT", "5672"))
-RABBITMQ_USER = os.getenv("RABBITMQ_USER", "guest")
-RABBITMQ_PASSWORD = os.getenv("RABBITMQ_PASSWORD", "guest")
-RABBITMQ_VHOST = os.getenv("RABBITMQ_VHOST", "/")
-
 USER_EVENTS_EXCHANGE = "user.events"
 
 RPC_CREATE_QUEUE = "identity.user.create.request"
@@ -27,6 +20,30 @@ RPC_LOOKUP_EMAIL_QUEUE = "identity.user.lookup.email.request"
 RPC_LOOKUP_UUID_QUEUE = "identity.user.lookup.uuid.request"
 MAX_XML_PAYLOAD_BYTES = 64 * 1024
 RABBITMQ_RETRY_DELAY_SECONDS = 3
+
+
+def _rabbitmq_env(var_name: str, legacy_var_name: str, default: str) -> str:
+    """Read preferred RabbitMQ env var with legacy fallback for compatibility."""
+    preferred = os.getenv(var_name)
+    if preferred and preferred.strip():
+        return preferred
+
+    legacy = os.getenv(legacy_var_name)
+    if legacy and legacy.strip():
+        return legacy
+
+    return default
+
+
+def _load_rabbitmq_connection_settings() -> dict:
+    """Load RabbitMQ settings from environment variables at connection time."""
+    return {
+        "host": os.getenv("RABBITMQ_HOST", "localhost"),
+        "port": int(os.getenv("RABBITMQ_PORT", "5672")),
+        "user": _rabbitmq_env("RABBIT_USER", "RABBITMQ_USER", "guest"),
+        "password": _rabbitmq_env("RABBIT_PASS", "RABBITMQ_PASSWORD", "guest"),
+        "vhost": os.getenv("RABBITMQ_VHOST", "/"),
+    }
 
 
 def _xml_text(parent: ET.Element, tag: str, value: str) -> None:
@@ -71,11 +88,21 @@ def _read_required(root: ET.Element, path: str) -> str:
 
 def get_rabbitmq_connection():
     """Create a RabbitMQ connection with credentials."""
-    credentials = pika.PlainCredentials(RABBITMQ_USER, RABBITMQ_PASSWORD)
+    settings = _load_rabbitmq_connection_settings()
+    credentials = pika.PlainCredentials(settings["user"], settings["password"])
+
+    logger.info(
+        "Connecting to RabbitMQ host=%s port=%s vhost=%s user=%s",
+        settings["host"],
+        settings["port"],
+        settings["vhost"],
+        settings["user"],
+    )
+
     parameters = pika.ConnectionParameters(
-        host=RABBITMQ_HOST,
-        port=RABBITMQ_PORT,
-        virtual_host=RABBITMQ_VHOST,
+        host=settings["host"],
+        port=settings["port"],
+        virtual_host=settings["vhost"],
         credentials=credentials,
         connection_attempts=3,
         retry_delay=2,
