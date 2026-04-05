@@ -1,0 +1,59 @@
+version: '3.8'
+
+services:
+  postgres_identity:
+    image: postgres:15-alpine
+    container_name: postgres_identity
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: identity_service
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_identity_data:/var/lib/postgresql/data
+    networks:
+      - identity_net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  identity-service:
+    build: .
+    container_name: identity_service
+    restart: unless-stopped
+    depends_on:
+      postgres_identity:
+        condition: service_healthy
+    environment:
+      DB_HOST: postgres_identity
+      DB_PORT: 5432
+      DB_NAME: identity_service
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      RABBITMQ_HOST: ${RABBITMQ_HOST:-rabbitmq_broker}
+      RABBITMQ_PORT: ${RABBITMQ_PORT:-5672}
+      RABBITMQ_USER: ${RABBITMQ_USER:-guest}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-guest}
+      RABBITMQ_VHOST: /
+      PYTHONUNBUFFERED: 1
+    ports:
+      - "8000:8000"
+    networks:
+      - identity_net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
+
+networks:
+  identity_net:
+    driver: bridge
+
+volumes:
+  postgres_identity_data:
