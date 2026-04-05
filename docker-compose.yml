@@ -21,28 +21,23 @@ services:
       timeout: 5s
       retries: 5
 
-  identity-service:
+identity-service:
     image: ghcr.io/integrationproject-groep1/identity-service:latest
     container_name: identity_service
     restart: unless-stopped
     environment:
-      # VERBINDING MET DE DB OP DE VM
-      - DB_HOST=${DB_HOST -postgresdb}
+      - DB_HOST=${DB_HOST}
       - DB_PORT=5432
-      - DB_NAME=identity_service
+      - DB_NAME=${DB_NAME}
       - DB_USER=${DB_USER}
       - DB_PASSWORD=${DB_PASSWORD}
       
-      # VERBINDING MET RABBITMQ OP DE VM
       - RABBITMQ_HOST=rabbitmq_broker
-      - RABBITMQ_PORT=5672       # Interne poort
+      - RABBITMQ_PORT=5672
       - RABBITMQ_USER=${RABBITMQ_USER}
       - RABBITMQ_PASSWORD=${RABBITMQ_PASSWORD}
       - RABBITMQ_VHOST=/
-      
       - PYTHONUNBUFFERED=1
-    ports:
-      - "30070:8000"
     networks:
       - shift_net
 
