@@ -182,10 +182,19 @@ docker build -t identity-service:latest .
 docker run -d \
   -e DB_HOST=postgres \
   -e DB_PORT=5432 \
+  -e DB_NAME=identity_service \
+  -e DB_USER=postgres \
+  -e DB_PASSWORD=your_secret_password \
   -e RABBITMQ_HOST=rabbitmq \
-  -p 8000:8000 \
+  -e RABBITMQ_PORT=5672 \
+  -e RABBITMQ_USER=guest \
+  -e RABBITMQ_PASSWORD=your_secret_password \
+  -e RABBITMQ_VHOST=/ \
+  -p 30070:8000 \
   identity-service:latest
 ```
+
+> **Note**: Port `30070` is allocated from the project's port block (`30070–30100`). Adjust as needed per Infra approval.
 
 ## Integration with Other Services
 
