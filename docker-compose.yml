@@ -7,9 +7,15 @@ services:
     container_name: postgres_identity
     restart: unless-stopped
     environment:
-      POSTGRES_USER: ${DB_USER:-postgres}
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
-      POSTGRES_DB: identity_service
+      DB_HOST: postgredb
+      DB_PORT: 5432
+      DB_NAME: ${DB_NAME}
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      
+      # RabbitMQ (Check of de service op je VM echt rabbitmq_broker heet)
+      RABBITMQ_HOST: rabbitmq_broker 
+      RABBITMQ_PORT: 5672
     ports:
       - "5433:5432" # 5433 naar buiten toe om conflicten met andere DB's te voorkomen
     volumes:
