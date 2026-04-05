@@ -35,9 +35,9 @@ services:
       DB_USER: postgres
       DB_PASSWORD: postgres
       RABBITMQ_HOST: ${RABBITMQ_HOST:-rabbitmq_broker}
-      RABBITMQ_PORT: ${RABBITMQ_PORT:-5672}
-      RABBITMQ_USER: ${RABBITMQ_USER:-guest}
-      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-guest}
+      RABBITMQ_PORT: ${RABBITMQ_PORT:-30000}
+      RABBITMQ_USER: ${RABBITMQ_USER:-identity_rabbitmq}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-change-me}
       RABBITMQ_VHOST: /
       PYTHONUNBUFFERED: 1
     ports:

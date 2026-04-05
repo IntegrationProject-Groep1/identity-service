@@ -124,14 +124,24 @@ DB_PASSWORD=postgres
 
 # RabbitMQ
 RABBITMQ_HOST=rabbitmq_broker
-RABBITMQ_PORT=5672
-RABBITMQ_USER=guest
-RABBITMQ_PASSWORD=guest
+RABBITMQ_PORT=30000
+RABBITMQ_USER=identity_rabbitmq
+RABBITMQ_PASSWORD=change-me
 RABBITMQ_VHOST=/
 
 # Docker host mapping port (must be from Infra-approved range)
 IDENTITY_HOST_PORT=30070
 ```
+
+### GitHub configuration for deployment
+
+Configure these in your GitHub repository before tagging a release:
+
+- **Repository variables**
+  - `RABBITMQ_HOST` = your RabbitMQ DNS name
+  - `RABBITMQ_USER` = `identity_rabbitmq`
+- **Repository secrets**
+  - `RABBITMQ_PASSWORD` = your RabbitMQ password
 
 ## Database Schema
 
