@@ -1,23 +1,16 @@
 version: '3.8'
 
 services:
-  # 1. De database specifiek voor deze microservice
   postgres_identity:
     image: postgres:15-alpine
     container_name: postgres_identity
     restart: unless-stopped
     environment:
-      DB_HOST: postgredb
-      DB_PORT: 5432
-      DB_NAME: ${DB_NAME}
-      DB_USER: ${DB_USER}
-      DB_PASSWORD: ${DB_PASSWORD}
-      
-      # RabbitMQ (Check of de service op je VM echt rabbitmq_broker heet)
-      RABBITMQ_HOST: rabbitmq_broker 
-      RABBITMQ_PORT: 5672
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
+      POSTGRES_DB: identity_service
     ports:
-      - "5433:5432" # 5433 naar buiten toe om conflicten met andere DB's te voorkomen
+      - "5433:5432"
     volumes:
       - postgres_identity_data:/var/lib/postgresql/data
     networks:
@@ -28,41 +21,35 @@ services:
       timeout: 5s
       retries: 5
 
-  # 2. De Identity Service zelf
   identity-service:
-    build: .
+    image: ghcr.io/integrationproject-groep1/identity-service:latest
     container_name: identity_service
     restart: unless-stopped
-    depends_on:
-      postgres_identity:
-        condition: service_healthy
     environment:
-      # Database connectie (Internal Docker DNS)
-      DB_HOST: postgres_identity
-      DB_PORT: 5432
-      DB_NAME: identity_service
-      DB_USER: ${DB_USER:-postgres}
-      DB_PASSWORD: ${DB_PASSWORD:-postgres}
+      # VERBINDING MET DE DB OP DE VM
+      - DB_HOST=integration_db   
+      - DB_PORT=5432
+      - DB_NAME=identity_service
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
       
-      # RabbitMQ connectie (Moet matchen met de service naam op de VM!)
-      # Gebruik INTERNE poort 5672, niet de externe 30000.
-      RABBITMQ_HOST: ${RABBITMQ_HOST:-rabbitmq_broker} 
-      RABBITMQ_PORT: 5672 
-      RABBITMQ_USER: ${RABBITMQ_USER:-admin}
-      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-admin123}
-      RABBITMQ_VHOST: /
+      # VERBINDING MET RABBITMQ OP DE VM
+      - RABBITMQ_HOST=rabbitmq_broker
+      - RABBITMQ_PORT=5672       # Interne poort
+      - RABBITMQ_USER=${RABBITMQ_USER}
+      - RABBITMQ_PASSWORD=${RABBITMQ_PASSWORD}
+      - RABBITMQ_VHOST=/
       
-      PYTHONUNBUFFERED: 1
+      - PYTHONUNBUFFERED=1
     ports:
-      - "${IDENTITY_HOST_PORT:-30070}:8000"
+      - "30070:8000"
     networks:
       - shift_net
 
 networks:
   shift_net:
-    # Op de VM moet dit netwerk 'external' zijn omdat je hoofd-compose het aanmaakt.
-    # Als je dit lokaal draait zonder de hoofd-compose, zet dit dan op 'driver: bridge'.
-    external: true 
+    external: true
+    name: shiftfestival_network
 
 volumes:
   postgres_identity_data:
