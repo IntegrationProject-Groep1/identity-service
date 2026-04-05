@@ -1,26 +1,28 @@
 version: '3.8'
 
 services:
+  # 1. De database specifiek voor deze microservice
   postgres_identity:
     image: postgres:15-alpine
     container_name: postgres_identity
     restart: unless-stopped
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
       POSTGRES_DB: identity_service
     ports:
-      - "5433:5432"
+      - "5433:5432" # 5433 naar buiten toe om conflicten met andere DB's te voorkomen
     volumes:
       - postgres_identity_data:/var/lib/postgresql/data
     networks:
-      - identity_net
+      - shift_net
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-postgres} -d identity_service"]
       interval: 10s
       timeout: 5s
       retries: 5
 
+  # 2. De Identity Service zelf
   identity-service:
     build: .
     container_name: identity_service
@@ -29,31 +31,32 @@ services:
       postgres_identity:
         condition: service_healthy
     environment:
+      # Database connectie (Internal Docker DNS)
       DB_HOST: postgres_identity
       DB_PORT: 5432
       DB_NAME: identity_service
-      DB_USER: postgres
-      DB_PASSWORD: postgres
-      RABBITMQ_HOST: ${RABBITMQ_HOST:-rabbitmq_broker}
-      RABBITMQ_PORT: ${RABBITMQ_PORT:-30000}
-      RABBITMQ_USER: ${RABBITMQ_USER:-identity_rabbitmq}
-      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-change-me}
+      DB_USER: ${DB_USER:-postgres}
+      DB_PASSWORD: ${DB_PASSWORD:-postgres}
+      
+      # RabbitMQ connectie (Moet matchen met de service naam op de VM!)
+      # Gebruik INTERNE poort 5672, niet de externe 30000.
+      RABBITMQ_HOST: ${RABBITMQ_HOST:-rabbitmq_broker} 
+      RABBITMQ_PORT: 5672 
+      RABBITMQ_USER: ${RABBITMQ_USER:-admin}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-admin123}
       RABBITMQ_VHOST: /
+      
       PYTHONUNBUFFERED: 1
     ports:
       - "${IDENTITY_HOST_PORT:-30070}:8000"
     networks:
-      - identity_net
-    healthcheck:
-      test: ["CMD", "python", "-c", "from urllib.request import urlopen; urlopen('http://localhost:8000/health', timeout=5)"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 5s
+      - shift_net
 
 networks:
-  identity_net:
-    driver: bridge
+  shift_net:
+    # Op de VM moet dit netwerk 'external' zijn omdat je hoofd-compose het aanmaakt.
+    # Als je dit lokaal draait zonder de hoofd-compose, zet dit dan op 'driver: bridge'.
+    external: true 
 
 volumes:
   postgres_identity_data:
