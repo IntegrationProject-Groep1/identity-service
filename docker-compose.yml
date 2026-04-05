@@ -41,11 +41,11 @@ services:
       RABBITMQ_VHOST: /
       PYTHONUNBUFFERED: 1
     ports:
-      - "8000:8000"
+      - "${IDENTITY_HOST_PORT:-30070}:8000"
     networks:
       - identity_net
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      test: ["CMD", "python", "-c", "from urllib.request import urlopen; urlopen('http://localhost:8000/health', timeout=5)"]
       interval: 30s
       timeout: 10s
       retries: 3

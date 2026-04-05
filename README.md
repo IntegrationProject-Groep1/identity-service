@@ -113,6 +113,7 @@ See `.env.example` for a complete list:
 
 ```env
 # Database
+DB_DRIVER=postgresql
 DB_HOST=postgres_identity
 DB_PORT=5432
 DB_NAME=identity_service
@@ -125,6 +126,9 @@ RABBITMQ_PORT=5672
 RABBITMQ_USER=guest
 RABBITMQ_PASSWORD=guest
 RABBITMQ_VHOST=/
+
+# Docker host mapping port (must be from Infra-approved range)
+IDENTITY_HOST_PORT=30070
 ```
 
 ## Database Schema
@@ -168,7 +172,7 @@ Indexes:
    ```
 
 5. **Verify health**
-  - http://localhost:8000/health
+  - http://localhost:${IDENTITY_HOST_PORT:-30070}/health
 
 ## Docker Deployment
 
@@ -245,6 +249,7 @@ Important: teams must not generate UUIDs locally. They only consume/store UUIDs 
 - [ ] No local UUID generation remains in service code
 
 For a copy-paste ready onboarding guide for teams, see `TEAM_ONBOARDING.md` in this same folder.
+For concrete RabbitMQ XML request/reply examples (including Drupal/PHP frontend), see `RPC_EXAMPLES.md`.
 
 ## Error Handling
 
@@ -261,7 +266,13 @@ For a copy-paste ready onboarding guide for teams, see `TEAM_ONBOARDING.md` in t
 
 ## Testing
 
-(Add testing framework: pytest, httpx)
+Unit tests are included under `tests/` and cover:
+
+- input validation and idempotency in user creation
+- safe XML payload parsing and payload-size guard
+- RPC response behavior and safe error exposure
+
+Run tests:
 
 ```bash
 pytest tests/

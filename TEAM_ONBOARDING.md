@@ -181,3 +181,45 @@ When your team is done, share this minimal handoff:
   - event received
   - local row updated
   - idempotent rerun result
+
+## 9) Frontend team implementation (Drupal/PHP)
+
+For `IP-groep1-frontend`, implement the same contract with RabbitMQ + XML.
+
+### Required queue/exchange setup
+
+- Consume events from exchange: `user.events` (fanout, durable)
+- Frontend queue: `frontend.user_created` (durable)
+- For RPC responses, use a private reply queue (exclusive, auto-delete) per worker/request context
+
+### Required data model change
+
+Add `master_uuid` to frontend user storage (`users_field_data` or your custom user profile table):
+
+- `master_uuid` unique + indexed
+- For new registrations, ensure `master_uuid` is present before final user persistence
+
+### Registration flow (frontend)
+
+1. User submits registration form in frontend.
+2. Frontend publishes XML request to `identity.user.create.request`.
+3. Frontend waits for XML RPC response on `reply_to` queue.
+4. Frontend persists local user with returned `master_uuid`.
+5. Frontend consumer keeps listening to `frontend.user_created` for cross-system reconciliation.
+
+### Frontend migration flow
+
+1. Select frontend users with `master_uuid IS NULL`.
+2. For each email, publish XML request to `identity.user.create.request`.
+3. Persist returned `master_uuid` locally.
+4. Repeat-safe: rerun script without duplicates.
+
+### Frontend done checklist
+
+- [ ] Queue `frontend.user_created` is durable and bound to `user.events`
+- [ ] Frontend registration uses RabbitMQ XML RPC (not HTTP)
+- [ ] Existing frontend users migrated idempotently
+- [ ] `master_uuid` unique/indexed in frontend DB
+- [ ] No JSON payloads and no REST calls for identity between services
+
+For concrete XML and RPC examples (including PHP/Drupal pattern), see `RPC_EXAMPLES.md`.

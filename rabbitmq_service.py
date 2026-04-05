@@ -1,11 +1,13 @@
 import os
 import logging
 import threading
+import time
 from datetime import datetime, timezone
 from uuid import UUID
 import xml.etree.ElementTree as ET
 
 import pika
+from defusedxml import ElementTree as DefusedET
 
 from database import SessionLocal
 
@@ -23,6 +25,8 @@ USER_EVENTS_EXCHANGE = "user.events"
 RPC_CREATE_QUEUE = "identity.user.create.request"
 RPC_LOOKUP_EMAIL_QUEUE = "identity.user.lookup.email.request"
 RPC_LOOKUP_UUID_QUEUE = "identity.user.lookup.uuid.request"
+MAX_XML_PAYLOAD_BYTES = 64 * 1024
+RABBITMQ_RETRY_DELAY_SECONDS = 3
 
 
 def _xml_text(parent: ET.Element, tag: str, value: str) -> None:
@@ -52,8 +56,10 @@ def _build_error_response(error_code: str, message: str) -> str:
 
 
 def _parse_xml_payload(payload: bytes) -> ET.Element:
+    if len(payload) > MAX_XML_PAYLOAD_BYTES:
+        raise ValueError("Payload too large")
     decoded = payload.decode("utf-8")
-    return ET.fromstring(decoded)
+    return DefusedET.fromstring(decoded)
 
 
 def _read_required(root: ET.Element, path: str) -> str:
@@ -73,6 +79,9 @@ def get_rabbitmq_connection():
         credentials=credentials,
         connection_attempts=3,
         retry_delay=2,
+        heartbeat=30,
+        blocked_connection_timeout=30,
+        socket_timeout=10,
     )
     return pika.BlockingConnection(parameters)
 
@@ -168,6 +177,16 @@ def _publish_rpc_response(channel, properties, response_xml: str) -> None:
     )
 
 
+def _safe_error_message(exc: Exception) -> str:
+    if isinstance(exc, ValueError):
+        return str(exc)
+    return "Internal server error"
+
+
+def _process_once(connection, channel) -> None:
+    connection.process_data_events(time_limit=1)
+
+
 def start_rpc_server(stop_event: threading.Event):
     """
     Start RabbitMQ XML-RPC consumers.
@@ -177,12 +196,6 @@ def start_rpc_server(stop_event: threading.Event):
     - identity.user.lookup.email.request
     - identity.user.lookup.uuid.request
     """
-    connection = get_rabbitmq_connection()
-    channel = connection.channel()
-
-    declare_infrastructure(connection)
-    channel.basic_qos(prefetch_count=1)
-
     def handle_create(ch, method, properties, body):
         db = SessionLocal()
         try:
@@ -198,7 +211,7 @@ def start_rpc_server(stop_event: threading.Event):
             ch.basic_ack(delivery_tag=method.delivery_tag)
         except Exception as exc:
             logger.error(f"RPC create failed: {exc}")
-            response_xml = _build_error_response("CREATE_FAILED", str(exc))
+            response_xml = _build_error_response("CREATE_FAILED", _safe_error_message(exc))
             _publish_rpc_response(ch, properties, response_xml)
             ch.basic_ack(delivery_tag=method.delivery_tag)
         finally:
@@ -222,7 +235,7 @@ def start_rpc_server(stop_event: threading.Event):
             ch.basic_ack(delivery_tag=method.delivery_tag)
         except Exception as exc:
             logger.error(f"RPC lookup by email failed: {exc}")
-            response_xml = _build_error_response("LOOKUP_FAILED", str(exc))
+            response_xml = _build_error_response("LOOKUP_FAILED", _safe_error_message(exc))
             _publish_rpc_response(ch, properties, response_xml)
             ch.basic_ack(delivery_tag=method.delivery_tag)
         finally:
@@ -246,28 +259,45 @@ def start_rpc_server(stop_event: threading.Event):
             ch.basic_ack(delivery_tag=method.delivery_tag)
         except Exception as exc:
             logger.error(f"RPC lookup by uuid failed: {exc}")
-            response_xml = _build_error_response("LOOKUP_FAILED", str(exc))
+            response_xml = _build_error_response("LOOKUP_FAILED", _safe_error_message(exc))
             _publish_rpc_response(ch, properties, response_xml)
             ch.basic_ack(delivery_tag=method.delivery_tag)
         finally:
             db.close()
 
-    channel.basic_consume(queue=RPC_CREATE_QUEUE, on_message_callback=handle_create)
-    channel.basic_consume(queue=RPC_LOOKUP_EMAIL_QUEUE, on_message_callback=handle_lookup_email)
-    channel.basic_consume(queue=RPC_LOOKUP_UUID_QUEUE, on_message_callback=handle_lookup_uuid)
-
-    logger.info("Identity XML RPC server started on RabbitMQ queues")
-
-    try:
-        while not stop_event.is_set():
-            connection.process_data_events(time_limit=1)
-    finally:
+    while not stop_event.is_set():
+        connection = None
+        channel = None
         try:
-            channel.close()
-        except Exception:
-            pass
-        try:
-            connection.close()
-        except Exception:
-            pass
-        logger.info("Identity XML RPC server stopped")
+            connection = get_rabbitmq_connection()
+            channel = connection.channel()
+
+            declare_infrastructure(connection)
+            channel.basic_qos(prefetch_count=1)
+
+            channel.basic_consume(queue=RPC_CREATE_QUEUE, on_message_callback=handle_create)
+            channel.basic_consume(queue=RPC_LOOKUP_EMAIL_QUEUE, on_message_callback=handle_lookup_email)
+            channel.basic_consume(queue=RPC_LOOKUP_UUID_QUEUE, on_message_callback=handle_lookup_uuid)
+
+            logger.info("Identity XML RPC server started on RabbitMQ queues")
+
+            while not stop_event.is_set():
+                _process_once(connection, channel)
+
+        except Exception as exc:
+            logger.error(f"RPC server connection loop error: {exc}")
+            if not stop_event.is_set():
+                time.sleep(RABBITMQ_RETRY_DELAY_SECONDS)
+        finally:
+            try:
+                if channel and channel.is_open:
+                    channel.close()
+            except Exception:
+                pass
+            try:
+                if connection and connection.is_open:
+                    connection.close()
+            except Exception:
+                pass
+
+    logger.info("Identity XML RPC server stopped")
