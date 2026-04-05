@@ -27,7 +27,7 @@ services:
     restart: unless-stopped
     environment:
       # VERBINDING MET DE DB OP DE VM
-      - DB_HOST=integration_db   
+      - DB_HOST=${DB_HOST -postgresdb}
       - DB_PORT=5432
       - DB_NAME=identity_service
       - DB_USER=${DB_USER}
