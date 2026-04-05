@@ -8,7 +8,7 @@ from sqlalchemy.orm import sessionmaker
 import pytest
 
 from database import Base
-from services import create_user
+from services import create_user, get_user_by_email
 
 
 @pytest.fixture
@@ -57,3 +57,19 @@ def test_create_user_still_succeeds_when_event_publish_fails(db_session, monkeyp
 
     user = create_user("user2@example.com", "crm", db_session)
     assert user.email == "user2@example.com"
+
+
+def test_get_user_by_email_normalizes_input(db_session, monkeypatch):
+    monkeypatch.setattr("services.publish_user_created", lambda *args, **kwargs: None)
+
+    created = create_user("user3@example.com", "crm", db_session)
+    found = get_user_by_email(" USER3@EXAMPLE.COM ", db_session)
+
+    assert found is not None
+    assert found.master_uuid == created.master_uuid
+    assert found.email == "user3@example.com"
+
+
+def test_get_user_by_email_rejects_invalid_email(db_session):
+    with pytest.raises(ValueError, match="Invalid email"):
+        get_user_by_email("not-an-email", db_session)

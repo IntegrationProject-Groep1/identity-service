@@ -102,6 +102,7 @@ def get_user_by_uuid(master_uuid: UUID, db: Session) -> UserRegistry | None:
 
 def get_user_by_email(email: str, db: Session) -> UserRegistry | None:
     """Retrieve a user by email."""
+    normalized_email = _validate_email(email)
     return db.query(UserRegistry).filter(
-        UserRegistry.email == email
+        UserRegistry.email == normalized_email
     ).first()

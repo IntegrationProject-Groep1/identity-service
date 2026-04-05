@@ -67,6 +67,8 @@ Lookup by email request to `identity.user.lookup.email.request`:
 </identity_request>
 ```
 
+Emails are normalized to trimmed lowercase before lookup, so teams may send canonical email addresses without worrying about casing differences.
+
 Lookup by UUID request to `identity.user.lookup.uuid.request`:
 
 ```xml
@@ -203,6 +205,8 @@ Each service that needs to use Master UUIDs should:
 1. **Add Consumer**: Listen to `user.events` exchange
 2. **Store Master UUID**: Add `master_uuid` column to local user tables
 3. **Migration Script**: Populate existing users via RabbitMQ XML RPC (`identity.user.create.request` / lookup queues)
+
+Canonical email rule: downstream services should normalize emails with trim + lowercase before matching local rows or building reconciliation scripts.
 
 ## ⚠️ Mandatory for all other teams
 

@@ -40,6 +40,8 @@ Lookup by email request XML:
 </identity_request>
 ```
 
+Email lookups are normalized to trimmed lowercase in `identity-service`, so consumers should store and compare email values canonically the same way.
+
 Lookup by UUID request XML:
 
 ```xml
@@ -110,6 +112,8 @@ Required flow:
 3. Bind queue to exchange.
 4. On `UserCreated`, upsert local record by email and write `master_uuid`.
 5. Ack only after DB write succeeds.
+
+When matching local records, canonicalize email the same way as Identity Service: trim whitespace and lowercase the value.
 
 ## 4.3 Conflict/upsert logic
 
