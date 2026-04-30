@@ -56,6 +56,7 @@ def _build_ok_response(user) -> str:
     _xml_text(root, "status", "ok")
 
     user_node = ET.SubElement(root, "user")
+    # XSD order (contract v2.3, section 15.4): master_uuid, email, created_by, created_at - must be consistent for XML deserialization
     _xml_text(user_node, "master_uuid", str(user.master_uuid))
     _xml_text(user_node, "email", user.email)
     _xml_text(user_node, "created_by", user.created_by)
