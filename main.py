@@ -67,9 +67,15 @@ async def shutdown_event():
         rpc_thread.join(timeout=5)
 
 
+@app.get("/live")
+async def liveness_check():
+    """Liveness probe: process is alive. Never returns 503 unless uvicorn itself is dead."""
+    return JSONResponse(status_code=200, content={"status": "alive"})
+
+
 @app.get("/health")
 async def health_check():
-    """Health check endpoint (operational only, not service-to-service communication)."""
+    """Readiness probe: service is fully operational."""
     if not _startup_complete:
         return JSONResponse(status_code=503, content={"status": "starting"})
 
