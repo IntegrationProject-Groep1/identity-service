@@ -1,9 +1,10 @@
 import logging
 import threading
 from fastapi import FastAPI
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import JSONResponse
+from sqlalchemy import text
 
-from database import init_db
+from database import engine, init_db
 from rabbitmq_service import declare_infrastructure, get_rabbitmq_connection, start_rpc_server
 
 # Setup logging
@@ -20,6 +21,7 @@ app = FastAPI(
 
 rpc_stop_event = threading.Event()
 rpc_thread: threading.Thread | None = None
+_startup_complete = False
 
 
 # ============================================================
@@ -28,6 +30,7 @@ rpc_thread: threading.Thread | None = None
 @app.on_event("startup")
 async def startup_event():
     """Initialize database and RabbitMQ on startup."""
+    global _startup_complete
     logger.info("Starting Identity Service...")
 
     # Initialize database tables
@@ -53,6 +56,8 @@ async def startup_event():
     rpc_thread.start()
     logger.info("RabbitMQ XML RPC server thread started")
 
+    _startup_complete = True
+
 
 @app.on_event("shutdown")
 async def shutdown_event():
@@ -62,10 +67,33 @@ async def shutdown_event():
         rpc_thread.join(timeout=5)
 
 
+@app.get("/live")
+async def liveness_check():
+    """Liveness probe: process is alive. Never returns 503 unless uvicorn itself is dead."""
+    return JSONResponse(status_code=200, content={"status": "alive"})
+
+
 @app.get("/health")
 async def health_check():
-    """Health check endpoint (operational only, not service-to-service communication)."""
-    return PlainTextResponse("ok")
+    """Readiness probe: service is fully operational."""
+    if not _startup_complete:
+        return JSONResponse(status_code=503, content={"status": "starting"})
+
+    issues = []
+
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+    except Exception as e:
+        issues.append(f"db: {e}")
+
+    if rpc_thread is None or not rpc_thread.is_alive():
+        issues.append("rabbitmq: rpc thread not running")
+
+    if issues:
+        return JSONResponse(status_code=503, content={"status": "degraded", "issues": issues})
+
+    return JSONResponse(status_code=200, content={"status": "ok"})
 
 
 if __name__ == "__main__":
